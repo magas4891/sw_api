@@ -1,7 +1,11 @@
 module StarWarsApi
   module V1
     class Client
+      include HttpStatusCodes
+      include ApiExceptions
+
       BASE_URL = 'https://swapi.dev/api'.freeze
+      API_REQUSTS_QUOTA_REACHED_MESSAGE = 'API rate limit exceeded'.freeze
 
       def root_request
         request(
@@ -99,7 +103,37 @@ module StarWarsApi
       def request(http_method, url)
         connection = Faraday.new(BASE_URL + url)
         response = connection.send(http_method)
-        # Oj.load(response.body)
+        parsed_response = Oj.load(response.body)
+
+        return parsed_response if response_successful?(response)
+
+        raise error_class(response), "Code: #{response.status}, response: #{response.body}"
+      end
+
+      def error_class(response)
+        case response.status
+        when HTTP_BAD_REQUEST_CODE
+          BadRequestError
+        when HTTP_UNAUTHORIZED_CODE
+          UnauthorizedError
+        when HTTP_FORBIDDEN_CODE
+          return ApiRequestsQuotaReachedError if api_requests_quota_reached?(response)
+          ForbiddenError
+        when HTTP_NOT_FOUND_CODE
+          NotFoundError
+        when HTTP_UNPROCESSABLE_ENTITY_CODE
+          UnprocessableEntityError
+        else
+          ApiError
+        end
+      end
+
+      def response_successful?(response)
+        response.status == HTTP_OK_CODE
+      end
+
+      def api_requests_quota_reached?(response)
+        response.body.match?(API_REQUSTS_QUOTA_REACHED_MESSAGE)
       end
     end
   end
